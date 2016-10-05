@@ -1,0 +1,240 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Rashmikant Dave"
+date: "October 4, 2016"
+theme: "cerulean"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.align = "center",font = "Times Roman")
+```
+
+###Executive Summary###
+
+In this analysis we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which praticipants did the exercise.During collection of data devices such as Jawbone Up, Nike FuelBand, and Fitbit were used.It has now become possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement A group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this data set, the participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The dependent variable or response is the “classe” variable in the training set.
+
+We download the data and clean it. We remove variables that have too many NA values, variables that have low varience or highly co-related variables.
+We also removed variables which are irrevelant to the dependent variable.Finally data is split into train and test.
+
+The Model Fitting was done by fitting a tree to the data we used the tree package first as this is faster in execution than caret which is slower in execution time.
+A cross validation was done between test and train data it was found to be a less accurate. Pruning did not have effect with respect to misclassification errors, and gave us a simpler tree. We use less predictors to get almost the same result. By pruning, we got a shallower tree, which is easier to interpret. number of terminal nodes were taken to 18. To get even better fit  Random Forest model and obtained a very close fit using 6 predictors randomly
+from the predictors which were included in the study.
+
+###Citations and References###
+
+Citation for data used in the study is given below:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#wle_paper_section#ixzz4M6ImjOce
+
+###Getting and cleaning Data###
+
+####Download and load the data####
+
+```{r}
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "./pml-training.csv")
+#download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "./pml-testing.csv")
+
+trainingSet = read.csv("pml-training.csv", na.strings=c("", "NA", "NULL"))
+# data.train =  read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c("", "NA", "NULL"))
+
+testSet = read.csv("pml-testing.csv", na.strings=c("", "NA", "NULL"))
+dim(trainingSet)
+dim(testSet)
+```
+
+####Cleaning the data####
+
+***Exclude variables that have too many NA values.***
+
+```{r}
+training.dena <- trainingSet[ , colSums(is.na(trainingSet)) == 0]
+#head(training1)
+#training3 <- training.decor[ rowSums(is.na(training.decor)) == 0, ]
+dim(training.dena)
+```
+***Exclude variables not required in the study***
+
+```{r}
+remove = c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window')
+training.dere <- training.dena[, -which(names(training.dena) %in% remove)]
+dim(training.dere)
+```
+***Exclude low variance variables nearZeroVar() this function brings out predictor values as compared to sample size***
+
+```{r}
+library(caret)
+zeroVar= nearZeroVar(training.dere[sapply(training.dere, is.numeric)], saveMetrics = TRUE)
+training.nonzerovar = training.dere[,zeroVar[, 'nzv']==0]
+dim(training.nonzerovar)
+```
+Exclude correlated variables using findCorrelation() This function searches through a correlation matrix and returns a vector of integers corresponding to columns to remove to reduce pair-wise correlations. 
+
+```{r}
+corrMatrix <- cor(na.omit(training.nonzerovar[sapply(training.nonzerovar, is.numeric)]))
+dim(corrMatrix)
+```
+There are 52 variables.
+
+```{r}
+corrData <- expand.grid(row = 1:52, col = 1:52)
+corrData$correlation <- as.vector(corrMatrix)
+levelplot(correlation ~ row+ col, corrData)
+```
+
+
+The level plot shows co related values being excluded. 
+
+```{r}
+removecor = findCorrelation(corrMatrix, cutoff = .90, verbose = TRUE)
+training.decor = training.nonzerovar[,-removecor]
+dim(training.decor)
+```
+Split data to training and testing to conduct cross validation.
+
+```{r}
+inTrain <- createDataPartition(y=training.decor$classe, p=0.7, list=FALSE)
+training <- training.decor[inTrain,]; testing <- training.decor[-inTrain,]
+dim(training);dim(testing)
+```
+
+There are now 13737 samples and 46 variables for training, 5885 samples and 46 variables for testing.
+
+####Regression Analysis Tree####
+
+Now we fit a tree to these data, and summarize and plot it. First, we use the 'tree' package. It is much faster than 'caret' package.
+
+```{r}
+library(tree)
+set.seed(12345)
+tree.training=tree(classe~.,data=training)
+summary(tree.training)
+plot(tree.training)
+text(tree.training,pretty=0, cex =.8)
+```
+
+
+This is a dense tree which will have to be pruned 
+
+***Detailed Summary of Tree***
+
+```{r}
+tree.training
+```
+
+```{r}
+library(caret)
+modFit <- train(classe ~ .,method="rpart",data=training)
+print(modFit$finalModel)
+```
+
+***We can use rattle package to get a better looking plot***
+
+```{r}
+library(rattle)
+fancyRpartPlot(modFit$finalModel)
+```
+
+***The result from 'caret' 'rpart' package is close to 'tree' package.***
+
+####Cross Validation####
+
+```{r}
+tree.pred=predict(tree.training,testing,type="class")
+predMatrix = with(testing,table(tree.pred,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix)) # error rate
+```
+
+```{r}
+tree.pred=predict(modFit,testing)
+predMatrix = with(testing,table(tree.pred,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix)) # error rate
+```
+
+The 0.50 from 'caret' package is much lower than the result with training set.
+
+####Pruning tree####
+
+***The full depth tree is pruned as follows:***
+
+```{r}
+cv.training=cv.tree(tree.training,FUN=prune.misclass)
+cv.training
+plot(cv.training)
+```
+
+```{r}
+prune.training=prune.misclass(tree.training,best=18)
+#plot(prune.training);text(prune.training,pretty=0,cex =.8 )
+```
+The size of the tree goes down, the deviance goes up.The above expression prunes to size 18.The plot aboe indicates a size of 21 would be fine.
+
+***Evaluate this pruned tree on the test data.***
+
+```{r}
+tree.pred=predict(prune.training,testing,type="class")
+predMatrix = with(testing,table(tree.pred,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix)) # error rate
+```
+
+0.66 very close 0.70, so pruning did not have effect the misclassification errors but gave a simpler tree. With the result we use less predictors to get almost the same result. By pruning, we got a less dense tree easier to interpret.
+
+####Random Forests####
+
+Random Forests is used to fit more complex models.Random forests build lots of  trees, and then average them to reduce the variance.
+
+```{r}
+require(randomForest)
+set.seed(4567)
+```
+Lets fit a random forest and see how well it performs.
+
+
+```{r}
+rf.training=randomForest(classe~.,data=training,ntree=100, importance=TRUE)
+rf.training
+
+plot(rf.training, log="y")
+varImpPlot(rf.training,)
+```
+
+
+```{r}
+#rf.training1=randomForest(classe~., data=training, proximity=TRUE )
+#DSplot(rf.training1, training$classe)
+```
+
+***Variables have higher impact on the prediction.***
+
+
+
+Random Forest model shows OOB estimate of error rate: 0.72% for the training data. 
+
+Below is the Prediction for out-of sample accuracy on test data.
+
+
+
+```{r}
+tree.pred=predict(rf.training,testing,type="class")
+predMatrix = with(testing,table(tree.pred,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix)) # error rate
+```
+
+0.99 means we got a very accurate estimate.
+
+Number of variables tried at each split: 6. This means every time we only randomly use 6 predictors to grow the tree to give a good fit. 
+
+###Conclusion###
+
+Prediction of the testing data from the website.
+
+```{r}
+answers <- predict(rf.training, testSet)
+answers
+```
+
+Those answers are going to submit to website for grading. It shows that this random forest model did a good job.
